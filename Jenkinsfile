@@ -15,9 +15,7 @@ pipeline {
         timeout(time: 60, unit: 'MINUTES') {
           script {
             sh "git archive -v -o panda.tar.gz --format=tar.gz HEAD"
-            // TODO: setup caching with docker in docker
-            sh "docker pull docker.io/commaai/panda-jenkins:latest || true"
-            sh "docker build -f Dockerfile -t ${env.DOCKER_IMAGE_TAG} --cache-from docker.io/commaai/panda-jenkins:latest ."
+            sh "docker build -f Dockerfile -t ${env.DOCKER_IMAGE_TAG} ."
           }
         }
       }
