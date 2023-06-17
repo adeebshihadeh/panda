@@ -1,1 +1,0 @@
-cmd_/data/openpilot/panda/drivers/spi/pandaspi.ko := ld -EL -r  -T ./scripts/module-common.lds -T ./arch/arm64/kernel/module.lds --build-id  -o /data/openpilot/panda/drivers/spi/pandaspi.ko /data/openpilot/panda/drivers/spi/pandaspi.o /data/openpilot/panda/drivers/spi/pandaspi.mod.o ;  true
