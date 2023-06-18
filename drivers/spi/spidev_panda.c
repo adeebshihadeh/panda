@@ -1,21 +1,3 @@
-/*
- * Simple synchronous userspace interface to SPI devices
- *
- * Copyright (C) 2006 SWAPP
- *	Andrea Paterniani <a.paterniani@swapp-eng.it>
- * Copyright (C) 2007 David Brownell (simplification, cleanup)
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- */
-
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/ioctl.h>
@@ -26,10 +8,8 @@
 #include <linux/errno.h>
 #include <linux/mutex.h>
 #include <linux/slab.h>
-#include <linux/compat.h>
 #include <linux/of.h>
 #include <linux/of_device.h>
-#include <linux/acpi.h>
 
 #include <linux/spi/spi.h>
 #include <linux/spi/spidev.h>
@@ -37,19 +17,6 @@
 #include <linux/uaccess.h>
 
 
-/*
- * This supports access to SPI devices using normal userspace I/O calls.
- * Note that while traditional UNIX/POSIX I/O semantics are half duplex,
- * and often mask message boundaries, full SPI support requires full duplex
- * transfers.  There are several kinds of internal message boundaries to
- * handle chipselect management and other protocol options.
- *
- * SPI has a character major number assigned.  We allocate minor numbers
- * dynamically using a bitmask.  You must use hotplug tools, such as udev
- * (or mdev with busybox) to create and destroy the /dev/spidevB.C device
- * nodes, since there is no fixed association of minor numbers with any
- * particular SPI bus or device.
- */
 #define SPIDEV_MAJOR			154	// + 1 from spidev's. is this a good number?
 #define N_SPI_MINORS			32	/* ... up to 256 */
 
@@ -512,75 +479,6 @@ spidev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	return retval;
 }
 
-#ifdef CONFIG_COMPAT
-static long
-spidev_compat_ioc_message(struct file *filp, unsigned int cmd,
-		unsigned long arg)
-{
-	struct spi_ioc_transfer __user	*u_ioc;
-	int				retval = 0;
-	struct spidev_data		*spidev;
-	struct spi_device		*spi;
-	unsigned			n_ioc, n;
-	struct spi_ioc_transfer		*ioc;
-
-	u_ioc = (struct spi_ioc_transfer __user *) compat_ptr(arg);
-	if (!access_ok(VERIFY_READ, u_ioc, _IOC_SIZE(cmd)))
-		return -EFAULT;
-
-	/* guard against device removal before, or while,
-	 * we issue this ioctl.
-	 */
-	spidev = filp->private_data;
-	spin_lock_irq(&spidev->spi_lock);
-	spi = spi_dev_get(spidev->spi);
-	spin_unlock_irq(&spidev->spi_lock);
-
-	if (spi == NULL)
-		return -ESHUTDOWN;
-
-	/* SPI_IOC_MESSAGE needs the buffer locked "normally" */
-	mutex_lock(&spidev->buf_lock);
-
-	/* Check message and copy into scratch area */
-	ioc = spidev_get_ioc_message(cmd, u_ioc, &n_ioc);
-	if (IS_ERR(ioc)) {
-		retval = PTR_ERR(ioc);
-		goto done;
-	}
-	if (!ioc)
-		goto done;	/* n_ioc is also 0 */
-
-	/* Convert buffer pointers */
-	for (n = 0; n < n_ioc; n++) {
-		ioc[n].rx_buf = (uintptr_t) compat_ptr(ioc[n].rx_buf);
-		ioc[n].tx_buf = (uintptr_t) compat_ptr(ioc[n].tx_buf);
-	}
-
-	/* translate to spi_message, execute */
-	retval = spidev_message(spidev, ioc, n_ioc);
-	kfree(ioc);
-
-done:
-	mutex_unlock(&spidev->buf_lock);
-	spi_dev_put(spi);
-	return retval;
-}
-
-static long
-spidev_compat_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
-{
-	if (_IOC_TYPE(cmd) == SPI_IOC_MAGIC
-			&& _IOC_NR(cmd) == _IOC_NR(SPI_IOC_MESSAGE(0))
-			&& _IOC_DIR(cmd) == _IOC_WRITE)
-		return spidev_compat_ioc_message(filp, cmd, arg);
-
-	return spidev_ioctl(filp, cmd, (unsigned long)compat_ptr(arg));
-}
-#else
-#define spidev_compat_ioctl NULL
-#endif /* CONFIG_COMPAT */
-
 static int spidev_open(struct inode *inode, struct file *filp)
 {
 	struct spidev_data	*spidev;
@@ -677,7 +575,7 @@ static const struct file_operations spidev_fops = {
 	.write =	spidev_write,
 	.read =		spidev_read,
 	.unlocked_ioctl = spidev_ioctl,
-	.compat_ioctl = spidev_compat_ioctl,
+	.compat_ioctl = NULL,
 	.open =		spidev_open,
 	.release =	spidev_release,
 	.llseek =	no_llseek,
@@ -692,52 +590,11 @@ static const struct file_operations spidev_fops = {
 
 static struct class *spidev_class;
 
-#ifdef CONFIG_OF
 static const struct of_device_id spidev_dt_ids[] = {
-	{ .compatible = "rohm,dh2228fv" },
-	{ .compatible = "lineartechnology,ltc2488" },
 	{ .compatible = "commaai,panda" },
 	{},
 };
 MODULE_DEVICE_TABLE(of, spidev_dt_ids);
-#endif
-
-#ifdef CONFIG_ACPI
-
-/* Dummy SPI devices not to be used in production systems */
-#define SPIDEV_ACPI_DUMMY	1
-
-static const struct acpi_device_id spidev_acpi_ids[] = {
-	/*
-	 * The ACPI SPT000* devices are only meant for development and
-	 * testing. Systems used in production should have a proper ACPI
-	 * description of the connected peripheral and they should also use
-	 * a proper driver instead of poking directly to the SPI bus.
-	 */
-	{ "SPT0001", SPIDEV_ACPI_DUMMY },
-	{ "SPT0002", SPIDEV_ACPI_DUMMY },
-	{ "SPT0003", SPIDEV_ACPI_DUMMY },
-	{},
-};
-MODULE_DEVICE_TABLE(acpi, spidev_acpi_ids);
-
-static void spidev_probe_acpi(struct spi_device *spi)
-{
-	const struct acpi_device_id *id;
-
-	if (!has_acpi_companion(&spi->dev))
-		return;
-
-	id = acpi_match_device(spidev_acpi_ids, &spi->dev);
-	if (WARN_ON(!id))
-		return;
-
-	if (id->driver_data == SPIDEV_ACPI_DUMMY)
-		dev_warn(&spi->dev, "do not use this driver in production systems!\n");
-}
-#else
-static inline void spidev_probe_acpi(struct spi_device *spi) {}
-#endif
 
 /*-------------------------------------------------------------------------*/
 
@@ -757,8 +614,6 @@ static int spidev_probe(struct spi_device *spi)
 		WARN_ON(spi->dev.of_node &&
 			!of_match_device(spidev_dt_ids, &spi->dev));
 	}
-
-	spidev_probe_acpi(spi);
 
 	/* Allocate driver data */
 	spidev = kzalloc(sizeof(*spidev), GFP_KERNEL);
@@ -805,8 +660,7 @@ static int spidev_probe(struct spi_device *spi)
 	return status;
 }
 
-static int spidev_remove(struct spi_device *spi)
-{
+static int spidev_remove(struct spi_device *spi) {
 	struct spidev_data	*spidev = spi_get_drvdata(spi);
 
 	/* make sure ops on existing fds can abort cleanly */
@@ -830,22 +684,14 @@ static struct spi_driver spidev_spi_driver = {
 	.driver = {
 		.name =		"spidev_panda",
 		.of_match_table = of_match_ptr(spidev_dt_ids),
-		.acpi_match_table = ACPI_PTR(spidev_acpi_ids),
 	},
 	.probe =	spidev_probe,
 	.remove =	spidev_remove,
-
-	/* NOTE:  suspend/resume methods are not necessary here.
-	 * We don't do anything except pass the requests to/from
-	 * the underlying controller.  The refrigerator handles
-	 * most issues; the controller driver handles the rest.
-	 */
 };
 
 /*-------------------------------------------------------------------------*/
 
-static int __init spidev_init(void)
-{
+static int __init spidev_init(void) {
 	int status;
 
 	/* Claim our 256 reserved device numbers.  Then register a class
@@ -872,8 +718,7 @@ static int __init spidev_init(void)
 }
 module_init(spidev_init);
 
-static void __exit spidev_exit(void)
-{
+static void __exit spidev_exit(void) {
 	spi_unregister_driver(&spidev_spi_driver);
 	class_destroy(spidev_class);
 	unregister_chrdev(SPIDEV_MAJOR, spidev_spi_driver.driver.name);
