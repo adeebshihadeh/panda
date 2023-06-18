@@ -34,6 +34,8 @@ static struct spi_driver spi_driver = {
 static int __init spi_driver_init(void) {
   int ret;
 
+
+
   // Register the SPI driver with the kernel
   ret = spi_register_driver(&spi_driver);
   if (ret < 0) {
