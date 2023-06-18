@@ -735,6 +735,10 @@ void usb_irqhandler(void) {
         outep3_processing = true;
         comms_can_write(usbdata, len);
       }
+
+      if (endpoint == 11) {
+        // pass
+      }
     } else if (status == STS_SETUP_UPDT) {
       (void)USB_ReadPacket(&setup, 8);
       #ifdef DEBUG_USB
@@ -873,6 +877,8 @@ void usb_irqhandler(void) {
           #endif
           // TODO: always assuming max len, can we get the length?
           USB_WritePacket((void *)resp, comms_can_read(resp, 0x40), 1);
+        } else if ((USBx_INEP(10)->DIEPINT & USB_OTG_DIEPMSK_ITTXFEMSK) != 0) {
+          USB_WritePacket((void *)resp, 0x40, 10);
         }
         break;
 
@@ -887,6 +893,8 @@ void usb_irqhandler(void) {
           if (len > 0) {
             USB_WritePacket((void *)resp, len, 1);
           }
+        } else if ((USBx_INEP(10)->DIEPINT & USB_OTG_DIEPMSK_ITTXFEMSK) != 0) {
+          USB_WritePacket((void *)resp, 0x40, 10);
         }
         break;
       default:

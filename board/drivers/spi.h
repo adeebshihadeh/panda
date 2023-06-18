@@ -129,6 +129,11 @@ void spi_rx_done(void) {
         } else {
           print("SPI: did expect data for can_write\n");
         }
+      } else if (spi_endpoint == 10U) {
+        response_len = spi_data_len_miso;
+        response_ack = true;
+      } else if (spi_endpoint == 11U) {
+        response_ack = true;
       } else {
         print("SPI: unexpected endpoint"); puth(spi_endpoint); print("\n");
       }
