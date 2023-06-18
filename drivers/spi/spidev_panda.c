@@ -85,92 +85,7 @@ spidev_sync(struct spidev_data *spidev, struct spi_message *message)
   return status;
 }
 
-static inline ssize_t
-spidev_sync_write(struct spidev_data *spidev, size_t len)
-{
-  struct spi_transfer t = {
-      .tx_buf   = spidev->tx_buffer,
-      .len    = len,
-      .speed_hz = spidev->speed_hz,
-    };
-  struct spi_message  m;
-
-  spi_message_init(&m);
-  spi_message_add_tail(&t, &m);
-  return spidev_sync(spidev, &m);
-}
-
-static inline ssize_t
-spidev_sync_read(struct spidev_data *spidev, size_t len)
-{
-  struct spi_transfer t = {
-      .rx_buf   = spidev->rx_buffer,
-      .len    = len,
-      .speed_hz = spidev->speed_hz,
-    };
-  struct spi_message  m;
-
-  spi_message_init(&m);
-  spi_message_add_tail(&t, &m);
-  return spidev_sync(spidev, &m);
-}
-
 /*-------------------------------------------------------------------------*/
-
-/* Read-only message with current device setup */
-static ssize_t
-spidev_read(struct file *filp, char __user *buf, size_t count, loff_t *f_pos)
-{
-  struct spidev_data  *spidev;
-  ssize_t     status = 0;
-
-  /* chipselect only toggles at start or end of operation */
-  if (count > bufsiz)
-    return -EMSGSIZE;
-
-  spidev = filp->private_data;
-
-  mutex_lock(&spidev->buf_lock);
-  status = spidev_sync_read(spidev, count);
-  if (status > 0) {
-    unsigned long missing;
-
-    missing = copy_to_user(buf, spidev->rx_buffer, status);
-    if (missing == status)
-      status = -EFAULT;
-    else
-      status = status - missing;
-  }
-  mutex_unlock(&spidev->buf_lock);
-
-  return status;
-}
-
-/* Write-only message with current device setup */
-static ssize_t
-spidev_write(struct file *filp, const char __user *buf,
-    size_t count, loff_t *f_pos)
-{
-  struct spidev_data  *spidev;
-  ssize_t     status = 0;
-  unsigned long   missing;
-
-  /* chipselect only toggles at start or end of operation */
-  if (count > bufsiz)
-    return -EMSGSIZE;
-
-  spidev = filp->private_data;
-
-  mutex_lock(&spidev->buf_lock);
-  missing = copy_from_user(spidev->tx_buffer, buf, count);
-  if (missing == 0)
-    status = spidev_sync_write(spidev, count);
-  else
-    status = -EFAULT;
-  mutex_unlock(&spidev->buf_lock);
-
-  return status;
-}
 
 static int spidev_message(struct spidev_data *spidev,
     struct spi_ioc_transfer *u_xfers, unsigned n_xfers)
@@ -318,6 +233,15 @@ spidev_get_ioc_message(unsigned int cmd, struct spi_ioc_transfer __user *u_ioc,
   }
   return ioc;
 }
+
+/*
+static void
+spidev_get_serial(struct ) {
+
+  // log it
+
+}
+*/
 
 static long
 spidev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
@@ -572,8 +496,8 @@ static const struct file_operations spidev_fops = {
    * gets more complete API coverage.  It'll simplify things
    * too, except for the locking.
    */
-  .write =  spidev_write,
-  .read =   spidev_read,
+  .write =  NULL,
+  .read =   NULL,
   .unlocked_ioctl = spidev_ioctl,
   .compat_ioctl = NULL,
   .open =   spidev_open,
