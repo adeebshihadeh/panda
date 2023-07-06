@@ -1,4 +1,5 @@
 import binascii
+import ctypes
 import os
 import fcntl
 import math
@@ -55,6 +56,17 @@ class PandaSpiTransferFailed(PandaSpiException):
 
 SPI_LOCK = threading.Lock()
 
+class PandaSpiTransfer(ctypes.Structure):
+  _fields_ = [
+    ('rx_buf', ctypes.c_uint64),
+    ('tx_buf', ctypes.c_uint64),
+    ('tx_length', ctypes.c_uint32),
+    ('rx_length_max', ctypes.c_uint32),
+    ('timeout', ctypes.c_uint32),
+    ('endpoint', ctypes.c_uint8),
+    ('expect_disconnect', ctypes.c_uint8),
+  ]
+
 class SpiDevice:
   """
   Provides locked, thread-safe access to a panda's SPI interface.
@@ -90,6 +102,7 @@ class SpiDevice:
     self._spidev.close()
 
 
+
 class PandaSpiHandle(BaseHandle):
   """
   A class that mimics a libusb1 handle for panda SPI communications.
@@ -97,39 +110,17 @@ class PandaSpiHandle(BaseHandle):
   def __init__(self):
     self.dev = SpiDevice()
 
-    import ctypes
+    self.tx_buf = bytearray(1024)
+    self.rx_buf = bytearray(1024)
 
-    class td(ctypes.Structure):
-      _fields_ = [
-        ('rx_buf', ctypes.c_uint64),
-        ('tx_buf', ctypes.c_uint64),
-        ('tx_length', ctypes.c_uint32),
-        ('rx_length_max', ctypes.c_uint32),
-        ('timeout', ctypes.c_uint32),
-        ('endpoint', ctypes.c_uint8),
-        ('expect_disconnect', ctypes.c_uint8),
-      ]
+    self.a = PandaSpiTransfer()
+    tx_buf_raw = ctypes.c_char.from_buffer(self.tx_buf)
+    self.a.tx_buf = ctypes.addressof(tx_buf_raw)
+    rx_buf_raw = ctypes.c_char.from_buffer(self.rx_buf)
+    self.a.rx_buf = ctypes.addressof(rx_buf_raw)
 
-    tx_buf = bytearray(1024)
-    rx_buf = bytearray(1024)
-
-    a = td()
-    tx_buf_raw = ctypes.c_char.from_buffer(tx_buf)
-    a.tx_buf = ctypes.addressof(tx_buf_raw)
-    rx_buf_raw = ctypes.c_char.from_buffer(rx_buf)
-    a.rx_buf = ctypes.addressof(rx_buf_raw)
-    a.endpoint = 0
-    a.rx_length_max = 1000
-
-    import spidev2
-    #tx_buf[:7] = b"VERSION"
-    #a.tx_length = 7
     dat = struct.pack("<BHHH", 0xc1, 0, 0, 0x40)
-    tx_buf[:len(dat)] = dat
-    a.tx_length = len(dat)
-    a = fcntl.ioctl(self.dev._spidev.fileno(), spidev2.SPI_IOC_RD_LSB_FIRST, a)
-    print("ioctl returned", a)
-    print("RX buffer", bytes(rx_buf[:30]))
+    self._transfer2(None, 0, dat, 0)
 
   # helpers
   def _calc_checksum(self, data: List[int]) -> int:
@@ -150,6 +141,17 @@ class PandaSpiHandle(BaseHandle):
         return
 
     raise PandaSpiMissingAck
+
+  def _transfer2(self, spi, endpoint: int, data, timeout: int, max_rx_len: int = 1000, expect_disconnect: bool = False) -> bytes:
+    self.a.endpoint = endpoint
+    self.tx_buf[:len(data)] = data
+    self.a.tx_length = len(data)
+    self.a.rx_length_max = max_rx_len
+    import spidev2
+    a = fcntl.ioctl(self.dev._spidev.fileno(), spidev2.SPI_IOC_RD_LSB_FIRST, self.a)
+    print("ioctl returned", a)
+    return self.rx_buf[:a]
+
 
   def _transfer(self, spi, endpoint: int, data, timeout: int, max_rx_len: int = 1000, expect_disconnect: bool = False) -> bytes:
     logging.debug("starting transfer: endpoint=%d, max_rx_len=%d", endpoint, max_rx_len)

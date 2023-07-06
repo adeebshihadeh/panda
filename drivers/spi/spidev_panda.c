@@ -382,10 +382,12 @@ spidev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
     // read struct from user
     struct spi_panda_transfer pt;
     if (!access_ok(VERIFY_WRITE, arg, sizeof(pt))) {
-      return -EFAULT;
+      retval = -EFAULT;
+      goto end;
     }
     if (copy_from_user(&pt, (void __user *)arg, sizeof(pt))) {
-      return -EFAULT;
+      retval = -EFAULT;
+      goto end;
     }
     dev_dbg(&spi->dev, "ep: %d, tx len: %d\n", pt.endpoint, pt.tx_length);
 
@@ -416,7 +418,9 @@ spidev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
       }
     }
     if (spidev->rx_buffer[0] != SPI_HACK) {
-      return -1;
+      dev_dbg(&spi->dev, "no ack %d\n", i);
+      retval = -1;
+      goto end;
     }
 
     // send data
@@ -439,7 +443,9 @@ spidev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
       }
     }
     if (spidev->rx_buffer[0] != SPI_DACK) {
-      return -1;
+      dev_dbg(&spi->dev, "no ack %d\n", i);
+      retval = -1;
+      goto end;
     }
 
     // get response
@@ -448,7 +454,8 @@ spidev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
     dev_dbg(&spi->dev, "rlen %u\n", rlen);
     if (rlen > pt.rx_length_max) {
       dev_dbg(&spi->dev, "RX len greater than max\n");
-      return -1;
+      retval = -1;
+      goto end;
     }
 
     // do the read
@@ -456,8 +463,11 @@ spidev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
     retval = copy_to_user((u8 __user *)(uintptr_t)pt.rx_buf, spidev->rx_buffer, rlen);
     if (panda_check_checksum(spidev->rx_buffer, rlen) != 0) {
       dev_dbg(&spi->dev, "bad checksum\n");
-      return -1;
+      retval = -1;
+      goto end;
     } 
+
+    retval = rlen;
 
     break;
   case SPI_IOC_RD_BITS_PER_WORD:
@@ -554,6 +564,7 @@ spidev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
     break;
   }
 
+end:
   mutex_unlock(&spidev->buf_lock);
   spi_dev_put(spi);
   return retval;
