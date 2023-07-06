@@ -306,6 +306,16 @@ spi_panda_add_checksum(struct spidev_data *spidev, __u32 len) {
 }
 */
 
+static void
+panda_set_checksum(__u8 *buf, __u16 length) {
+  __u8 cksum = 0xab;
+  int i;
+  for (i = 0; i < length; i++) {
+    cksum ^= buf[i];
+  } 
+  buf[length] = cksum;
+}
+
 static long
 spidev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
@@ -381,24 +391,88 @@ spidev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
     }
     dev_dbg(&spi->dev, "ep: %d, tx len: %d\n", pt.endpoint, pt.tx_length);
 
-    // VERSION command
-    //memcpy(spidev->tx_buffer, pt.tx_buf, pt.tx_length);
-    retval = copy_from_user(spidev->tx_buffer, (const u8 __user *)(uintptr_t)pt.tx_buf, pt.tx_length);
-    retval = spidev_sync_write(spidev, pt.tx_length);
-    dev_dbg(&spi->dev, "write: %d\n", retval);
+    // send header
+    struct spi_header sh = {
+      .sync = 0x5a,
+      .endpoint = pt.endpoint,
+      .tx_len = pt.tx_length,
+      .max_rx_len = pt.rx_length_max
+    };
+    memcpy(spidev->tx_buffer, &sh, sizeof(sh));
+    panda_set_checksum(spidev->tx_buffer, sizeof(sh));
+    retval = spidev_sync_write(spidev, sizeof(sh) + 1);
 
-    // wait for ack
     int i;
-    for (i = 0; i < 100; i++) {
+    for (i = 0; i < sizeof(sh) + 1; i++) {
+      dev_dbg(&spi->dev, "%x", spidev->tx_buffer[i]);
+    }
+
+    // wait for ACK
+    dev_dbg(&spi->dev, "waiting for ack\n");
+    for (i = 0; i < 500; i++) {
       // TODO: sleep here
-      retval = spidev_sync_read(spidev, 7);
-      if (memcmp(spidev->tx_buffer, "VERSION", 7) == 0) {
-        dev_dbg(&spi->dev, "got version, try %d\n", i);
+      retval = spidev_sync_read(spidev, 1);
+      if (spidev->rx_buffer[0] == SPI_HACK) {
+        dev_dbg(&spi->dev, "got ack, try %d\n", i);
         break;
       }
     }
+    if (spidev->rx_buffer[0] != SPI_HACK) {
+      return -1;
+    }
 
-    retval = copy_to_user((u8 __user *)(uintptr_t)pt.rx_buf, spidev->rx_buffer, 7);
+    // send data
+    dev_dbg(&spi->dev, "sending data\n");
+    retval = copy_from_user(spidev->tx_buffer, (const u8 __user *)(uintptr_t)pt.tx_buf, pt.tx_length);
+    panda_set_checksum(spidev->tx_buffer, pt.tx_length);
+    for (i = 0; i < pt.tx_length + 1; i++) {
+      dev_dbg(&spi->dev, "%x", spidev->tx_buffer[i]);
+    }
+    retval = spidev_sync_write(spidev, pt.tx_length+1);
+
+    // wait for ack
+    dev_dbg(&spi->dev, "waiting for ack\n");
+    for (i = 0; i < 5; i++) {
+      // TODO: sleep here
+      retval = spidev_sync_read(spidev, 1);
+      if (spidev->rx_buffer[0] == SPI_DACK) {
+        dev_dbg(&spi->dev, "got ack, try %d\n", i);
+        break;
+      }
+    }
+    if (spidev->rx_buffer[0] != SPI_DACK) {
+      return -1;
+    }
+
+    // get response
+    retval = spidev_sync_read(spidev, 2);
+    uint16_t rlen = (spidev->rx_buffer[1] << 8) | (spidev->rx_buffer[0]);
+    dev_dbg(&spi->dev, "rlen %u\n", rlen);
+    if (rlen > pt.rx_length_max) {
+      return -1;
+    }
+
+    // do the read
+    retval = spidev_sync_read(spidev, rlen);
+    retval = copy_to_user((u8 __user *)(uintptr_t)pt.rx_buf, spidev->rx_buffer, rlen);
+
+    if (false) {
+      retval = copy_from_user(spidev->tx_buffer, (const u8 __user *)(uintptr_t)pt.tx_buf, pt.tx_length);
+      retval = spidev_sync_write(spidev, pt.tx_length);
+      dev_dbg(&spi->dev, "write: %d\n", retval);
+
+      // wait for ack
+      int i;
+      for (i = 0; i < 100; i++) {
+        // TODO: sleep here
+        retval = spidev_sync_read(spidev, 7);
+        if (memcmp(spidev->tx_buffer, "VERSION", 7) == 0) {
+          dev_dbg(&spi->dev, "got version, try %d\n", i);
+          break;
+        }
+      }
+      retval = copy_to_user((u8 __user *)(uintptr_t)pt.rx_buf, spidev->rx_buffer, 7);
+    }
 
     break;
   case SPI_IOC_RD_BITS_PER_WORD:

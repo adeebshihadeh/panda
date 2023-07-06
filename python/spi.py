@@ -118,11 +118,15 @@ class PandaSpiHandle(BaseHandle):
     a.tx_buf = ctypes.addressof(tx_buf_raw)
     rx_buf_raw = ctypes.c_char.from_buffer(rx_buf)
     a.rx_buf = ctypes.addressof(rx_buf_raw)
-    a.endpoint = 12
+    a.endpoint = 0
+    a.rx_length_max = 1000
 
     import spidev2
-    tx_buf[:7] = b"VERSION"
-    a.tx_length = 7
+    #tx_buf[:7] = b"VERSION"
+    #a.tx_length = 7
+    dat = struct.pack("<BHHH", 0xc1, 0, 0, 0x40)
+    tx_buf[:len(dat)] = dat
+    a.tx_length = len(dat)
     a = fcntl.ioctl(self.dev._spidev.fileno(), spidev2.SPI_IOC_RD_LSB_FIRST, a)
     print("ioctl returned", a)
     print("RX buffer", bytes(rx_buf[:30]))
