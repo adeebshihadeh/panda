@@ -103,7 +103,11 @@ class PandaSpiHandle(BaseHandle):
       _fields_ = [
         ('rx_buf', ctypes.c_uint64),
         ('tx_buf', ctypes.c_uint64),
+        ('tx_length', ctypes.c_uint32),
+        ('rx_length_max', ctypes.c_uint32),
+        ('timeout', ctypes.c_uint32),
         ('endpoint', ctypes.c_uint8),
+        ('expect_disconnect', ctypes.c_uint8),
       ]
 
     tx_buf = bytearray(1024)
@@ -117,6 +121,8 @@ class PandaSpiHandle(BaseHandle):
     a.endpoint = 12
 
     import spidev2
+    tx_buf[:7] = b"VERSION"
+    a.tx_length = 7
     a = fcntl.ioctl(self.dev._spidev.fileno(), spidev2.SPI_IOC_RD_LSB_FIRST, a)
     print("ioctl returned", a)
     print("RX buffer", bytes(rx_buf[:30]))

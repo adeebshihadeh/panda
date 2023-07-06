@@ -284,167 +284,27 @@ struct __attribute__((packed)) spi_header {
   uint16_t max_rx_len;
 };
 
-/*
-static void add_checksum(u8 *data, int data_len) {
-  int i;
-  data[data_len] = SPI_CHECKSUM_START;
-  for (i=0; i < data_len; i++) {
-    data[data_len] ^= data[i];
-  }
-}
-
-static bool check_checksum(u8 *data, int data_len) {
-  uint16_t i;
-  u8 checksum = SPI_CHECKSUM_START;
-  for (i = 0U; i < data_len; i++) {
-    checksum ^= data[i];
-  }
-  return checksum == 0U;
-}
-*/
-
-/*
-static int
-spidev_wait_for_ack(struct spidev_data *spidev, int ack_val) {
-  struct spi_transfer t = {
-    .rx_buf = spidev->rx_buffer,
-    .len = 1,
-    .speed_hz = spidev->speed_hz,
-    .delay_usecs = 1000,
-  };
-
-  struct spi_message m;
-  spi_message_init(&m);
-  spi_message_add_tail(&t, &m);
-
-  while (true) {
-    ssize_t len = spidev_sync(spidev, &m);
-    if (len < 0) {
-      //dev_err(&spi->dev, "buggy DT: spidev listed directly in DT\n");
-      return -1;
-    }
-
-    if (spidev->rx_buffer[0] == ack_val) {
-      break;
-    } else if (spidev->rx_buffer[0] == SPI_NACK) {
-      return NACK;
-    }
-
-    // TODO: add timeout
-  }
-
-  return 0;
-}
-*/
-
-/*
-static int
-spidev_spi_transfer(u8 endpoint, u8 *tx_data, uint16_t tx_len,
-                    u8 *rx_data, uint16_t max_rx_len, unsigned int timeout) {
-  int ret;
-  uint16_t rx_data_len;
-
-  // TODO: need to take a lock here
-  //LockEx lock(spi_fd, hw_lock);
-
-  struct spi_message m;
-
-  // needs to be less, since we need to have space for the checksum
-  //assert(tx_len < SPI_BUF_SIZE);
-  //assert(max_rx_len < SPI_BUF_SIZE);
-
-  struct spi_header header = {
-    .sync = SPI_SYNC,
-    .endpoint = endpoint,
-    .tx_len = tx_len,
-    .max_rx_len = max_rx_len
-  };
-
-  struct spi_ioc_transfer transfer = {
-    .tx_buf = spidev->tx_buffer,
-    .rx_buf = spidev->rx_buffer,
-  };
-
-  // Send header
-  memcpy(tx_buf, &header, sizeof(header));
-  add_checksum(tx_buf, sizeof(header));
-  transfer.len = sizeof(header) + 1;
-  //ret = util::safe_ioctl(spi_fd, SPI_IOC_MESSAGE(1), &transfer);
-
-  ret = spidev_;
-  if (ret < 0) {
-    LOGE("SPI: failed to send header");
-    goto transfer_fail;
-  }
-
-  // Wait for (N)ACK
-  ret = wait_for_ack(SPI_HACK, 0x11, timeout);
-  if (ret < 0) {
-    goto transfer_fail;
-  }
-
-  // Send data
-  if (tx_data != NULL) {
-    memcpy(tx_buf, tx_data, tx_len);
-  }
-  add_checksum(tx_buf, tx_len);
-  transfer.len = tx_len + 1;
-  ret = util::safe_ioctl(spi_fd, SPI_IOC_MESSAGE(1), &transfer);
-  if (ret < 0) {
-    LOGE("SPI: failed to send data");
-    goto transfer_fail;
-  }
-
-  // Wait for (N)ACK
-  ret = wait_for_ack(SPI_DACK, 0x13, timeout);
-  if (ret < 0) {
-    goto transfer_fail;
-  }
-
-  // Read data len
-  transfer.len = 2;
-  transfer.rx_buf = (uint64_t)(rx_buf + 1);
-  ret = util::safe_ioctl(spi_fd, SPI_IOC_MESSAGE(1), &transfer);
-  if (ret < 0) {
-    LOGE("SPI: failed to read rx data len");
-    goto transfer_fail;
-  }
-  rx_data_len = *(uint16_t *)(rx_buf+1);
-  if (rx_data_len >= SPI_BUF_SIZE) {
-    LOGE("SPI: RX data len larger than buf size %d", rx_data_len);
-    goto transfer_fail;
-  }
-
-  // Read data
-  transfer.len = rx_data_len + 1;
-  transfer.rx_buf = (uint64_t)(rx_buf + 2 + 1);
-  ret = util::safe_ioctl(spi_fd, SPI_IOC_MESSAGE(1), &transfer);
-  if (ret < 0) {
-    LOGE("SPI: failed to read rx data");
-    goto transfer_fail;
-  }
-  if (!check_checksum(rx_buf, rx_data_len + 4)) {
-    LOGE("SPI: bad checksum");
-    goto transfer_fail;
-  }
-
-  if (rx_data != NULL) {
-    memcpy(rx_data, rx_buf + 3, rx_data_len);
-  }
-
-  return rx_data_len;
-
-transfer_fail:
-  return ret;
-  return 0;
-}
-*/
-
 struct spi_panda_transfer {
   __u64 rx_buf;
   __u64 tx_buf;
+  __u32 tx_length;
+  __u32 rx_length_max;
+  __u32 timeout;
   __u8 endpoint;
+  __u8 expect_disconnect;
 };
+
+/*
+static void
+spi_panda_add_checksum(struct spidev_data *spidev, __u32 len) {
+  __u8 cksum = 0xab;
+  int i;
+  for (i = 0; i < len; i++) {
+    cksum = cksum ^ spidev->tx_buffer[i];
+  }
+  spidev->tx_buffer;
+}
+*/
 
 static long
 spidev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
@@ -509,38 +369,7 @@ spidev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
       * spi async?
       * wait queues?
     */
-    // TODO: make our own ioctl request for this
     dev_dbg(&spi->dev, "panda ioctl!\n");
-    retval = 0;
-
-    /*
-    struct spi_transfer t = {
-      .rx_buf = spidev->rx_buffer,
-      .len = 10,
-      .speed_hz = spidev->speed_hz,
-    };
-    struct spi_message m;
-
-    spi_message_init(&m);
-    spi_message_add_tail(&t, &m);
-    retval = spidev_sync(spidev, &m);
-    */
-
-    // VERSION command
-    memcpy(spidev->tx_buffer, "VERSION", 7);
-    retval = spidev_sync_write(spidev, 7);
-    dev_dbg(&spi->dev, "write: %d\n", retval);
-
-    // wait for ack
-    int i;
-    for (i = 0; i < 100; i++) {
-      // TODO: sleep here
-      retval = spidev_sync_read(spidev, 7);
-      if (memcmp(spidev->tx_buffer, "VERSION", 7) == 0) {
-        dev_dbg(&spi->dev, "got version %d\n", i);
-        break;
-      }
-    }
 
     // read struct from user
     struct spi_panda_transfer pt;
@@ -550,22 +379,26 @@ spidev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
     if (copy_from_user(&pt, (void __user *)arg, sizeof(pt))) {
       return -EFAULT;
     }
-    dev_dbg(&spi->dev, "ep: %d\n", pt.endpoint);
+    dev_dbg(&spi->dev, "ep: %d, tx len: %d\n", pt.endpoint, pt.tx_length);
+
+    // VERSION command
+    //memcpy(spidev->tx_buffer, pt.tx_buf, pt.tx_length);
+    retval = copy_from_user(spidev->tx_buffer, (const u8 __user *)(uintptr_t)pt.tx_buf, pt.tx_length);
+    retval = spidev_sync_write(spidev, pt.tx_length);
+    dev_dbg(&spi->dev, "write: %d\n", retval);
+
+    // wait for ack
+    int i;
+    for (i = 0; i < 100; i++) {
+      // TODO: sleep here
+      retval = spidev_sync_read(spidev, 7);
+      if (memcmp(spidev->tx_buffer, "VERSION", 7) == 0) {
+        dev_dbg(&spi->dev, "got version, try %d\n", i);
+        break;
+      }
+    }
 
     retval = copy_to_user((u8 __user *)(uintptr_t)pt.rx_buf, spidev->rx_buffer, 7);
-
-    /*
-    //udelay(200000);  // 0.2s
-    retval = spidev_sync_read(spidev, 40);
-    dev_dbg(&spi->dev, "read: %d\n", retval);
-
-    dev_dbg(&spi->dev, "read: 0x");
-    int i;
-    for (i = 0; i < 40; i++) {
-      dev_dbg(&spi->dev, "%x", spidev->rx_buffer[i]);
-    }
-    dev_dbg(&spi->dev, "\n");
-    */
 
     break;
   case SPI_IOC_RD_BITS_PER_WORD:
