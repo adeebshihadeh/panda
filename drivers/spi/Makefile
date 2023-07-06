@@ -5,7 +5,7 @@ PWD := $(shell pwd)
 
 # GCC9 bug, apply kernel patch instead?
 # https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=0b999ae3614d09d97a1575936bcee884f912b10e 
-ccflags-y := -Wno-missing-attributes
+ccflags-y := -Wno-missing-attributes -Wno-declaration-after-statement
 
 default:
 	$(MAKE) -C $(KDIR) M=$(PWD) modules

@@ -16,6 +16,7 @@
 
 #include <linux/uaccess.h>
 
+#include <linux/delay.h>
 
 #define SPIDEV_MAJOR      154 // + 1 from spidev's. is this a good number?
 #define N_SPI_MINORS      32  /* ... up to 256 */
@@ -83,6 +84,36 @@ spidev_sync(struct spidev_data *spidev, struct spi_message *message)
     status = message->actual_length;
 
   return status;
+}
+
+static inline ssize_t
+spidev_sync_write(struct spidev_data *spidev, size_t len)
+{
+	struct spi_transfer	t = {
+			.tx_buf		= spidev->tx_buffer,
+			.len		= len,
+			.speed_hz	= spidev->speed_hz,
+		};
+	struct spi_message	m;
+
+	spi_message_init(&m);
+	spi_message_add_tail(&t, &m);
+	return spidev_sync(spidev, &m);
+}
+
+static inline ssize_t
+spidev_sync_read(struct spidev_data *spidev, size_t len)
+{
+	struct spi_transfer	t = {
+			.rx_buf		= spidev->rx_buffer,
+			.len		= len,
+			.speed_hz	= spidev->speed_hz,
+		};
+	struct spi_message	m;
+
+	spi_message_init(&m);
+	spi_message_add_tail(&t, &m);
+	return spidev_sync(spidev, &m);
 }
 
 /*-------------------------------------------------------------------------*/
@@ -460,20 +491,6 @@ spidev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
   /* read requests */
   case SPI_IOC_RD_MODE:
     retval = __put_user(spi->mode & SPI_MODE_MASK, (__u8 __user *)arg);
-    /*
-    ioc = spidev_get_ioc_message(cmd,
-        (struct spi_ioc_transfer __user *)arg, &n_ioc);
-    if (IS_ERR(ioc)) {
-      retval = PTR_ERR(ioc);
-      break;
-    }
-    if (!ioc)
-      break;  // n_ioc is also 0
-
-    // translate to spi_message, execute
-    retval = spidev_message(spidev, ioc, n_ioc);
-    kfree(ioc);
-    */
     break;
   case SPI_IOC_RD_MODE32:
     retval = __put_user(spi->mode & SPI_MODE_MASK,
@@ -483,6 +500,36 @@ spidev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
     // TODO: make our own ioctl request for this
     dev_dbg(&spi->dev, "panda ioctl!\n");
     retval = 0;
+
+    /*
+    struct spi_transfer t = {
+      .rx_buf = spidev->rx_buffer,
+      .len = 10,
+      .speed_hz = spidev->speed_hz,
+    };
+    struct spi_message m;
+
+    spi_message_init(&m);
+    spi_message_add_tail(&t, &m);
+    retval = spidev_sync(spidev, &m);
+    */
+
+    // VERSION command
+    memcpy(spidev->tx_buffer, "VERSION", 7);
+    retval = spidev_sync_write(spidev, 7);
+    dev_dbg(&spi->dev, "write: %d\n", retval);
+
+    // get ACK
+    //udelay(200000);  // 0.2s
+    retval = spidev_sync_read(spidev, 40);
+    dev_dbg(&spi->dev, "read: %d\n", retval);
+
+    dev_dbg(&spi->dev, "read: 0x");
+    int i;
+    for (i = 0; i < 40; i++) {
+      dev_dbg(&spi->dev, "%x", spidev->rx_buffer[i]);
+    }
+    dev_dbg(&spi->dev, "\n");
 
     break;
   case SPI_IOC_RD_BITS_PER_WORD:
