@@ -1,3 +1,4 @@
+spidev.c
 *.ko
 *.cmd
 *.mod
