@@ -22,4 +22,5 @@ echo "loaded"
 ls -la /dev/spi*
 sudo chmod 666 /dev/spi*
 ipython -c "from panda import Panda; print(Panda.list())"
+NEW=1 ipython -c "from panda import Panda; print(Panda.list())"
 dmesg
