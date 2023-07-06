@@ -119,8 +119,8 @@ class PandaSpiHandle(BaseHandle):
     rx_buf_raw = ctypes.c_char.from_buffer(self.rx_buf)
     self.a.rx_buf = ctypes.addressof(rx_buf_raw)
 
-    dat = struct.pack("<BHHH", 0xc1, 0, 0, 0x40)
-    self._transfer2(None, 0, dat, 0)
+    #dat = struct.pack("<BHHH", 0xc1, 0, 0, 0x40)
+    #self._transfer2(None, 0, dat, 0)
 
   # helpers
   def _calc_checksum(self, data: List[int]) -> int:
@@ -142,18 +142,27 @@ class PandaSpiHandle(BaseHandle):
 
     raise PandaSpiMissingAck
 
-  def _transfer2(self, spi, endpoint: int, data, timeout: int, max_rx_len: int = 1000, expect_disconnect: bool = False) -> bytes:
+  def _transfer(self, spi, endpoint: int, data, timeout: int, max_rx_len: int = 1000, expect_disconnect: bool = False) -> bytes:
+    if "NEW" in os.environ:
+      return self._transfer_new(spi, endpoint, data, timeout, max_rx_len, expect_disconnect)
+    return self._transfer_old(spi, endpoint, data, timeout, max_rx_len, expect_disconnect)
+
+  def _transfer_new(self, spi, endpoint: int, data, timeout: int, max_rx_len: int = 1000, expect_disconnect: bool = False) -> bytes:
     self.a.endpoint = endpoint
     self.tx_buf[:len(data)] = data
     self.a.tx_length = len(data)
     self.a.rx_length_max = max_rx_len
     import spidev2
-    a = fcntl.ioctl(self.dev._spidev.fileno(), spidev2.SPI_IOC_RD_LSB_FIRST, self.a)
-    print("ioctl returned", a)
-    return self.rx_buf[:a]
+    for _ in range(10):
+      try:
+        a = fcntl.ioctl(self.dev._spidev.fileno(), spidev2.SPI_IOC_RD_LSB_FIRST, self.a)
+        return bytes(self.rx_buf[:a])
+      except Exception as e:
+        print(str(e))
+    raise Exception("abc")
 
 
-  def _transfer(self, spi, endpoint: int, data, timeout: int, max_rx_len: int = 1000, expect_disconnect: bool = False) -> bytes:
+  def _transfer_old(self, spi, endpoint: int, data, timeout: int, max_rx_len: int = 1000, expect_disconnect: bool = False) -> bytes:
     logging.debug("starting transfer: endpoint=%d, max_rx_len=%d", endpoint, max_rx_len)
     logging.debug("==============================================")
 

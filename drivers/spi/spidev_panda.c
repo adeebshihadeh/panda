@@ -315,6 +315,24 @@ panda_check_checksum(__u8 *buf, __u16 length) {
 }
 
 static long
+panda_wait_for_ack(struct spidev_data *spidev, __u8 ack_val) {
+  int i;
+  int ret;
+  for (i = 0; i < 1000; i++) {
+    ret = spidev_sync_read(spidev, 1);
+    if (ret < 0) {
+      continue;
+      //return ret;
+    }
+    if (spidev->rx_buffer[0] == ack_val) {
+      return 0;
+    }
+    usleep_range(100, 500);
+  }
+  return -1;
+}
+
+static long
 spidev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
   int     err = 0;
@@ -402,24 +420,10 @@ spidev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
     panda_set_checksum(spidev->tx_buffer, sizeof(sh));
     retval = spidev_sync_write(spidev, sizeof(sh) + 1);
 
-    int i;
-    for (i = 0; i < sizeof(sh) + 1; i++) {
-      dev_dbg(&spi->dev, "%x", spidev->tx_buffer[i]);
-    }
-
     // wait for ACK
-    dev_dbg(&spi->dev, "waiting for ack\n");
-    for (i = 0; i < 500; i++) {
-      // TODO: sleep here
-      retval = spidev_sync_read(spidev, 1);
-      if (spidev->rx_buffer[0] == SPI_HACK) {
-        dev_dbg(&spi->dev, "got ack, try %d\n", i);
-        break;
-      }
-    }
-    if (spidev->rx_buffer[0] != SPI_HACK) {
-      dev_dbg(&spi->dev, "no ack %d\n", i);
-      retval = -1;
+    retval = panda_wait_for_ack(spidev, SPI_HACK);
+    if (retval < 0) {
+      dev_dbg(&spi->dev, "no header ack\n");
       goto end;
     }
 
@@ -427,24 +431,12 @@ spidev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
     dev_dbg(&spi->dev, "sending data\n");
     retval = copy_from_user(spidev->tx_buffer, (const u8 __user *)(uintptr_t)pt.tx_buf, pt.tx_length);
     panda_set_checksum(spidev->tx_buffer, pt.tx_length);
-    for (i = 0; i < pt.tx_length + 1; i++) {
-      dev_dbg(&spi->dev, "%x", spidev->tx_buffer[i]);
-    }
     retval = spidev_sync_write(spidev, pt.tx_length+1);
 
     // wait for ack
-    dev_dbg(&spi->dev, "waiting for ack\n");
-    for (i = 0; i < 5; i++) {
-      // TODO: sleep here
-      retval = spidev_sync_read(spidev, 1);
-      if (spidev->rx_buffer[0] == SPI_DACK) {
-        dev_dbg(&spi->dev, "got ack, try %d\n", i);
-        break;
-      }
-    }
-    if (spidev->rx_buffer[0] != SPI_DACK) {
-      dev_dbg(&spi->dev, "no ack %d\n", i);
-      retval = -1;
+    retval = panda_wait_for_ack(spidev, SPI_DACK);
+    if (retval < 0) {
+      dev_dbg(&spi->dev, "no data ack\n");
       goto end;
     }
 
