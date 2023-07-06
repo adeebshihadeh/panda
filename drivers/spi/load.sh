@@ -11,9 +11,7 @@ sudo su -c "echo spi0.0 > /sys/bus/spi/drivers/spidev/unbind" || true
 sudo dmesg -C
 
 #sudo rmmod -f spidev_panda
-sudo rmmod pandaspi || true
 sudo rmmod spidev_panda || true
-#sudo insmod pandaspi.ko
 sudo insmod spidev_panda.ko
 
 sudo su -c "echo 'file $DIR/spidev_panda.c +p' > /sys/kernel/debug/dynamic_debug/control"
