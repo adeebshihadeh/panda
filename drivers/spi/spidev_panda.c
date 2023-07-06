@@ -50,7 +50,7 @@
  * nodes, since there is no fixed association of minor numbers with any
  * particular SPI bus or device.
  */
-#define SPIDEV_MAJOR			153	/* assigned */
+#define SPIDEV_MAJOR			154	// +1 from spidev's
 #define N_SPI_MINORS			32	/* ... up to 256 */
 
 static DECLARE_BITMAP(minors, N_SPI_MINORS);
@@ -698,8 +698,6 @@ static struct class *spidev_class;
 
 #ifdef CONFIG_OF
 static const struct of_device_id spidev_dt_ids[] = {
-	{ .compatible = "rohm,dh2228fv" },
-	{ .compatible = "lineartechnology,ltc2488" },
 	{ .compatible = "commaai,panda" },
 	{},
 };
@@ -832,7 +830,7 @@ static int spidev_remove(struct spi_device *spi)
 
 static struct spi_driver spidev_spi_driver = {
 	.driver = {
-		.name =		"spidev",
+		.name =		"spidev_panda",
 		.of_match_table = of_match_ptr(spidev_dt_ids),
 		.acpi_match_table = ACPI_PTR(spidev_acpi_ids),
 	},
@@ -861,7 +859,7 @@ static int __init spidev_init(void)
 	if (status < 0)
 		return status;
 
-	spidev_class = class_create(THIS_MODULE, "spidev");
+	spidev_class = class_create(THIS_MODULE, "spidev_panda");
 	if (IS_ERR(spidev_class)) {
 		unregister_chrdev(SPIDEV_MAJOR, spidev_spi_driver.driver.name);
 		return PTR_ERR(spidev_class);

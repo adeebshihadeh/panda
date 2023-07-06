@@ -1,3 +1,7 @@
+53c53
+< #define SPIDEV_MAJOR			153	/* assigned */
+---
+> #define SPIDEV_MAJOR			154	// +1 from spidev's
 354a355,357
 > 
 > #include "spi_panda.h"
@@ -9,3 +13,14 @@
 > 		retval = panda_transfer(spidev, spi, arg);
 > 		//retval = __put_user((spi->mode & SPI_LSB_FIRST) ?  1 : 0,
 > 		//			(__u8 __user *)arg);
+697,698d700
+< 	{ .compatible = "rohm,dh2228fv" },
+< 	{ .compatible = "lineartechnology,ltc2488" },
+831c833
+< 		.name =		"spidev",
+---
+> 		.name =		"spidev_panda",
+860c862
+< 	spidev_class = class_create(THIS_MODULE, "spidev");
+---
+> 	spidev_class = class_create(THIS_MODULE, "spidev_panda");
