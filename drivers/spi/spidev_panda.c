@@ -294,26 +294,24 @@ struct spi_panda_transfer {
   __u8 expect_disconnect;
 };
 
-/*
-static void
-spi_panda_add_checksum(struct spidev_data *spidev, __u32 len) {
-  __u8 cksum = 0xab;
-  int i;
-  for (i = 0; i < len; i++) {
-    cksum = cksum ^ spidev->tx_buffer[i];
-  }
-  spidev->tx_buffer;
-}
-*/
-
 static void
 panda_set_checksum(__u8 *buf, __u16 length) {
-  __u8 cksum = 0xab;
   int i;
+  __u8 checksum = 0xab;
   for (i = 0; i < length; i++) {
-    cksum ^= buf[i];
+    checksum ^= buf[i];
   } 
-  buf[length] = cksum;
+  buf[length] = checksum;
+}
+
+static __u8
+panda_check_checksum(__u8 *buf, __u16 length) {
+  int i;
+  __u8 checksum = SPI_CHECKSUM_START;
+  for (i = 0U; i < length; i++) {
+    checksum ^= buf[i];
+  }
+  return checksum == 0U;
 }
 
 static long
@@ -449,30 +447,17 @@ spidev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
     uint16_t rlen = (spidev->rx_buffer[1] << 8) | (spidev->rx_buffer[0]);
     dev_dbg(&spi->dev, "rlen %u\n", rlen);
     if (rlen > pt.rx_length_max) {
+      dev_dbg(&spi->dev, "RX len greater than max\n");
       return -1;
     }
 
     // do the read
     retval = spidev_sync_read(spidev, rlen);
     retval = copy_to_user((u8 __user *)(uintptr_t)pt.rx_buf, spidev->rx_buffer, rlen);
-
-    if (false) {
-      retval = copy_from_user(spidev->tx_buffer, (const u8 __user *)(uintptr_t)pt.tx_buf, pt.tx_length);
-      retval = spidev_sync_write(spidev, pt.tx_length);
-      dev_dbg(&spi->dev, "write: %d\n", retval);
-
-      // wait for ack
-      int i;
-      for (i = 0; i < 100; i++) {
-        // TODO: sleep here
-        retval = spidev_sync_read(spidev, 7);
-        if (memcmp(spidev->tx_buffer, "VERSION", 7) == 0) {
-          dev_dbg(&spi->dev, "got version, try %d\n", i);
-          break;
-        }
-      }
-      retval = copy_to_user((u8 __user *)(uintptr_t)pt.rx_buf, spidev->rx_buffer, 7);
-    }
+    if (panda_check_checksum(spidev->rx_buffer, rlen) != 0) {
+      dev_dbg(&spi->dev, "bad checksum\n");
+      return -1;
+    } 
 
     break;
   case SPI_IOC_RD_BITS_PER_WORD:
