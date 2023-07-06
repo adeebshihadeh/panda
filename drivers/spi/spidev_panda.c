@@ -253,6 +253,7 @@ struct __attribute__((packed)) spi_header {
   uint16_t max_rx_len;
 };
 
+/*
 static void add_checksum(u8 *data, int data_len) {
   int i;
   data[data_len] = SPI_CHECKSUM_START;
@@ -269,8 +270,9 @@ static bool check_checksum(u8 *data, int data_len) {
   }
   return checksum == 0U;
 }
+*/
 
-
+/*
 static int
 spidev_wait_for_ack(struct spidev_data *spidev, int ack_val) {
   struct spi_transfer t = {
@@ -302,12 +304,16 @@ spidev_wait_for_ack(struct spidev_data *spidev, int ack_val) {
 
   return 0;
 }
+*/
 
+/*
 static int
 spidev_spi_transfer(u8 endpoint, u8 *tx_data, uint16_t tx_len,
                     u8 *rx_data, uint16_t max_rx_len, unsigned int timeout) {
   int ret;
   uint16_t rx_data_len;
+
+  // TODO: need to take a lock here
   //LockEx lock(spi_fd, hw_lock);
 
   struct spi_message m;
@@ -399,7 +405,9 @@ spidev_spi_transfer(u8 endpoint, u8 *tx_data, uint16_t tx_len,
 
 transfer_fail:
   return ret;
+  return 0;
 }
+*/
 
 static long
 spidev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
@@ -451,18 +459,31 @@ spidev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
   switch (cmd) {
   /* read requests */
   case SPI_IOC_RD_MODE:
+    retval = __put_user(spi->mode & SPI_MODE_MASK, (__u8 __user *)arg);
+    /*
+    ioc = spidev_get_ioc_message(cmd,
+        (struct spi_ioc_transfer __user *)arg, &n_ioc);
+    if (IS_ERR(ioc)) {
+      retval = PTR_ERR(ioc);
+      break;
+    }
+    if (!ioc)
+      break;  // n_ioc is also 0
 
-    retval = spidev_spi_tranfer(spidev, );
-    //retval = __put_user(spi->mode & SPI_MODE_MASK,
-    //      (__u8 __user *)arg);
+    // translate to spi_message, execute
+    retval = spidev_message(spidev, ioc, n_ioc);
+    kfree(ioc);
+    */
     break;
   case SPI_IOC_RD_MODE32:
     retval = __put_user(spi->mode & SPI_MODE_MASK,
           (__u32 __user *)arg);
     break;
   case SPI_IOC_RD_LSB_FIRST:
-    retval = __put_user((spi->mode & SPI_LSB_FIRST) ?  1 : 0,
-          (__u8 __user *)arg);
+    // TODO: make our own ioctl request for this
+    dev_dbg(&spi->dev, "panda ioctl!\n");
+    retval = 0;
+
     break;
   case SPI_IOC_RD_BITS_PER_WORD:
     retval = __put_user(spi->bits_per_word, (__u8 __user *)arg);
@@ -541,8 +562,8 @@ spidev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
     break;
 
   default:
-    /* segmented and/or full-duplex I/O request */
-    /* Check message and copy into scratch area */
+    /* segmented and/or full-duplex i/o request */
+    /* check message and copy into scratch area */
     ioc = spidev_get_ioc_message(cmd,
         (struct spi_ioc_transfer __user *)arg, &n_ioc);
     if (IS_ERR(ioc)) {

@@ -97,6 +97,10 @@ class PandaSpiHandle(BaseHandle):
   def __init__(self):
     self.dev = SpiDevice()
 
+    import spidev2
+    a = fcntl.ioctl(self.dev._spidev.fileno(), spidev2.SPI_IOC_RD_LSB_FIRST)
+    print("a", a)
+
   # helpers
   def _calc_checksum(self, data: List[int]) -> int:
     cksum = CHECKSUM_START

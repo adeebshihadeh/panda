@@ -8,6 +8,8 @@ make -j8
 
 sudo su -c "echo spi0.0 > /sys/bus/spi/drivers/spidev/unbind" || true
 
+sudo dmesg -C
+
 sudo rmmod pandaspi || true
 sudo rmmod spidev_panda || true
 #sudo insmod pandaspi.ko
@@ -21,3 +23,4 @@ echo "loaded"
 ls -la /dev/spi*
 sudo chmod 666 /dev/spi*
 ipython -c "from panda import Panda; print(Panda.list())"
+dmesg
