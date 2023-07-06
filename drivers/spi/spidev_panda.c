@@ -440,6 +440,12 @@ transfer_fail:
 }
 */
 
+struct spi_panda_transfer {
+  __u64 rx_buf;
+  __u64 tx_buf;
+  __u8 endpoint;
+};
+
 static long
 spidev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
@@ -497,6 +503,12 @@ spidev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
           (__u32 __user *)arg);
     break;
   case SPI_IOC_RD_LSB_FIRST:
+    /*
+      TODO:
+      * use our own ioctl request
+      * spi async?
+      * wait queues?
+    */
     // TODO: make our own ioctl request for this
     dev_dbg(&spi->dev, "panda ioctl!\n");
     retval = 0;
@@ -519,7 +531,30 @@ spidev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
     retval = spidev_sync_write(spidev, 7);
     dev_dbg(&spi->dev, "write: %d\n", retval);
 
-    // get ACK
+    // wait for ack
+    int i;
+    for (i = 0; i < 100; i++) {
+      // TODO: sleep here
+      retval = spidev_sync_read(spidev, 7);
+      if (memcmp(spidev->tx_buffer, "VERSION", 7) == 0) {
+        dev_dbg(&spi->dev, "got version %d\n", i);
+        break;
+      }
+    }
+
+    // read struct from user
+    struct spi_panda_transfer pt;
+    if (!access_ok(VERIFY_WRITE, arg, sizeof(pt))) {
+      return -EFAULT;
+    }
+    if (copy_from_user(&pt, (void __user *)arg, sizeof(pt))) {
+      return -EFAULT;
+    }
+    dev_dbg(&spi->dev, "ep: %d\n", pt.endpoint);
+
+    retval = copy_to_user((u8 __user *)(uintptr_t)pt.rx_buf, spidev->rx_buffer, 7);
+
+    /*
     //udelay(200000);  // 0.2s
     retval = spidev_sync_read(spidev, 40);
     dev_dbg(&spi->dev, "read: %d\n", retval);
@@ -530,6 +565,7 @@ spidev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
       dev_dbg(&spi->dev, "%x", spidev->rx_buffer[i]);
     }
     dev_dbg(&spi->dev, "\n");
+    */
 
     break;
   case SPI_IOC_RD_BITS_PER_WORD:

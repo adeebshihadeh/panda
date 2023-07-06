@@ -97,9 +97,29 @@ class PandaSpiHandle(BaseHandle):
   def __init__(self):
     self.dev = SpiDevice()
 
+    import ctypes
+
+    class td(ctypes.Structure):
+      _fields_ = [
+        ('rx_buf', ctypes.c_uint64),
+        ('tx_buf', ctypes.c_uint64),
+        ('endpoint', ctypes.c_uint8),
+      ]
+
+    tx_buf = bytearray(1024)
+    rx_buf = bytearray(1024)
+
+    a = td()
+    tx_buf_raw = ctypes.c_char.from_buffer(tx_buf)
+    a.tx_buf = ctypes.addressof(tx_buf_raw)
+    rx_buf_raw = ctypes.c_char.from_buffer(rx_buf)
+    a.rx_buf = ctypes.addressof(rx_buf_raw)
+    a.endpoint = 12
+
     import spidev2
-    a = fcntl.ioctl(self.dev._spidev.fileno(), spidev2.SPI_IOC_RD_LSB_FIRST)
-    print("a", a)
+    a = fcntl.ioctl(self.dev._spidev.fileno(), spidev2.SPI_IOC_RD_LSB_FIRST, a)
+    print("ioctl returned", a)
+    print("RX buffer", bytes(rx_buf[:30]))
 
   # helpers
   def _calc_checksum(self, data: List[int]) -> int:
